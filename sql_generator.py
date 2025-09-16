@@ -1,5 +1,5 @@
 import os
-from langchain_openai import ChatOpenAI
+from langchain.llms import OpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from typing import Dict, Any, List, Tuple
@@ -12,7 +12,7 @@ class SQLGenerator:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         
-        self.llm = ChatOpenAI(
+        self.llm = OpenAI(
             temperature=0,
             model_name="gpt-4o-mini",
             openai_api_key=self.api_key
