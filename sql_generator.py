@@ -1,5 +1,5 @@
 import os
-from langchain.llms import OpenAI
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from typing import Dict, Any, List, Tuple
@@ -12,7 +12,7 @@ class SQLGenerator:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         
-        self.llm = OpenAI(
+        self.llm = ChatOpenAI(
             temperature=0,
             model_name="gpt-4o-mini",
             openai_api_key=self.api_key
@@ -95,12 +95,13 @@ SQL Query:
         
         try:
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
+            result_dict = await loop.run_in_executor(
                 None,
-                chain.run,
+                chain.invoke,
                 {"query": enhanced_query, "schema": schema_prompt}
             )
-            
+            result = result_dict.get('text', '')
+
             # Clean up the result
             sql = result.strip()
             if sql.startswith("```sql"):
