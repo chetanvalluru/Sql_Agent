@@ -4,7 +4,6 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from typing import Dict, Any, List, Tuple
 import asyncio
-from fuzzy_matcher import FuzzyColumnMatcher, ColumnMatch
 
 class SQLGenerator:
     def __init__(self):
@@ -18,24 +17,10 @@ class SQLGenerator:
             openai_api_key=self.api_key
         )
         
-        # Initialize fuzzy matcher for column name handling
-        self.fuzzy_matcher = FuzzyColumnMatcher()
     
     async def generate_sql(self, natural_query: str, schema_info: Dict[str, Any], sample_data: Dict[str, Any] = None) -> str:
-        """Generate SQL from natural language query with enhanced context and fuzzy matching"""
-        # Pre-process the query to identify and suggest column name corrections
-        enhanced_query, suggestions = await self._preprocess_query_with_fuzzy_matching(
-            natural_query, schema_info
-        )
-        
+        """Generate SQL from natural language query with enhanced context"""
         schema_prompt = self._format_enhanced_schema_for_prompt(schema_info, sample_data)
-        
-        # Add column suggestions to the schema prompt if any were found
-        if suggestions:
-            schema_prompt += "\n\nCOLUMN NAME SUGGESTIONS:\n"
-            schema_prompt += "Based on fuzzy matching analysis of the user query, consider these column suggestions:\n"
-            for suggestion in suggestions:
-                schema_prompt += f"• {suggestion}\n"
         
         prompt_template = PromptTemplate(
             input_variables=["query", "schema"],
@@ -95,13 +80,12 @@ SQL Query:
         
         try:
             loop = asyncio.get_event_loop()
-            result_dict = await loop.run_in_executor(
+            result = await loop.run_in_executor(
                 None,
-                chain.invoke,
-                {"query": enhanced_query, "schema": schema_prompt}
+                chain.run,
+                {"query": natural_query, "schema": schema_prompt}
             )
-            result = result_dict.get('text', '')
-
+            
             # Clean up the result
             sql = result.strip()
             if sql.startswith("```sql"):
@@ -657,159 +641,6 @@ SALESFORCE-SPECIFIC CONSIDERATIONS:
         """Legacy method - kept for backward compatibility"""
         return self._format_enhanced_schema_for_prompt(schema_info)
     
-    async def _preprocess_query_with_fuzzy_matching(self, natural_query: str, 
-                                                   schema_info: Dict[str, Any]) -> Tuple[str, List[str]]:
-        """
-        Pre-process natural language query to identify potential column names and suggest corrections.
-        
-        Args:
-            natural_query: Original natural language query
-            schema_info: Database schema information
-            
-        Returns:
-            Tuple of (enhanced_query, list_of_suggestions)
-        """
-        suggestions = []
-        enhanced_query = natural_query
-        
-        # Extract potential column references from natural language
-        potential_columns = self._extract_potential_column_names(natural_query)
-        
-        for potential_col in potential_columns:
-            # Find fuzzy matches for this potential column
-            matches = self.fuzzy_matcher.find_column_matches(potential_col, schema_info, top_n=3)
-            
-            if matches:
-                best_match = matches[0]
-                
-                # If the best match isn't perfect, provide suggestions
-                if best_match.similarity_score < 95:
-                    suggestion = f"For '{potential_col}', consider: {best_match.table_name}.{best_match.matched_column}"
-                    if best_match.similarity_score < 85:
-                        suggestion += f" (similarity: {best_match.similarity_score:.1f}%)"
-                    suggestions.append(suggestion)
-                    
-                    # Optionally enhance the query with the correction
-                    if best_match.similarity_score > 80:
-                        # Replace the potential column with the best match in the query
-                        enhanced_query = enhanced_query.replace(
-                            potential_col, 
-                            f"{best_match.table_name}.{best_match.matched_column}"
-                        )
-        
-        return enhanced_query, suggestions
     
-    def _extract_potential_column_names(self, natural_query: str) -> List[str]:
-        """
-        Extract potential column names from natural language query.
-        
-        This is a heuristic-based approach that looks for words that might be column names.
-        """
-        import re
-        
-        # Common patterns that suggest column names
-        column_indicators = [
-            r'by (\w+)',  # "order by name", "group by status"
-            r'where (\w+)',  # "where email", "where status"
-            r'select (\w+)',  # "select name", "select email"
-            r'show (\w+)',  # "show name", "show status"
-            r'find (\w+)',  # "find email", "find status"
-            r'with (\w+)',  # "with name", "with status"
-            r'(\w+) is',  # "name is", "status is"
-            r'(\w+) equals',  # "name equals", "status equals"
-            r'(\w+) contains',  # "name contains", "email contains"
-        ]
-        
-        potential_columns = set()
-        query_lower = natural_query.lower()
-        
-        # Extract using patterns
-        for pattern in column_indicators:
-            matches = re.findall(pattern, query_lower)
-            potential_columns.update(matches)
-        
-        # Also look for common database field names mentioned directly
-        common_fields = [
-            'name', 'email', 'phone', 'status', 'type', 'date', 'id', 'title',
-            'description', 'amount', 'address', 'city', 'state', 'country',
-            'created', 'modified', 'updated', 'deleted', 'active', 'inactive',
-            'first_name', 'last_name', 'full_name', 'company', 'organization',
-            'semester', 'session', 'program', 'course', 'instructor', 'teacher',
-            'student', 'school', 'grade', 'subject', 'availability', 'schedule'
-        ]
-        
-        for field in common_fields:
-            if field in query_lower:
-                potential_columns.add(field)
-        
-        # Filter out very short words and common English words
-        stop_words = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
-                     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-                     'could', 'should', 'may', 'might', 'can', 'must', 'shall',
-                     'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from',
-                     'up', 'about', 'into', 'through', 'during', 'before', 'after',
-                     'above', 'below', 'between', 'among', 'and', 'or', 'but',
-                     'if', 'then', 'else', 'when', 'where', 'why', 'how', 'what',
-                     'who', 'which', 'that', 'this', 'these', 'those', 'all',
-                     'any', 'some', 'many', 'much', 'more', 'most', 'other',
-                     'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
-                     'than', 'too', 'very', 'just', 'now'}
-        
-        filtered_columns = []
-        for col in potential_columns:
-            if len(col) > 2 and col not in stop_words and col.isalpha():
-                filtered_columns.append(col)
-        
-        return filtered_columns
     
-    async def validate_and_suggest_sql(self, sql_query: str, schema_info: Dict[str, Any]) -> Tuple[str, List[str]]:
-        """
-        Validate SQL query for column name issues and provide suggestions.
-        
-        Args:
-            sql_query: Generated SQL query
-            schema_info: Database schema information
-            
-        Returns:
-            Tuple of (validated_sql, list_of_suggestions)
-        """
-        is_valid, suggestions = self.fuzzy_matcher.validate_sql_columns(sql_query, schema_info)
-        
-        if not is_valid:
-            # The SQL has potential issues, but we return it anyway with suggestions
-            return sql_query, suggestions
-        
-        return sql_query, []
     
-    async def handle_sql_error(self, error_message: str, original_sql: str, 
-                              schema_info: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle SQL execution errors and provide intelligent suggestions.
-        
-        Args:
-            error_message: SQL error message
-            original_sql: The SQL query that failed
-            schema_info: Database schema information
-            
-        Returns:
-            Dictionary with error analysis and suggestions
-        """
-        suggestions = self.fuzzy_matcher.suggest_column_corrections(error_message, schema_info)
-        
-        # Try to extract the problematic column and suggest a corrected SQL
-        corrected_sql = original_sql
-        column_corrections = {}
-        
-        # Look for column name corrections in the suggestions
-        for suggestion in suggestions:
-            if "Did you mean:" in suggestion:
-                # This is a more complex parsing task - for now, just provide suggestions
-                pass
-        
-        return {
-            'error_type': 'column_name_error',
-            'original_error': error_message,
-            'suggestions': suggestions,
-            'corrected_sql': corrected_sql,
-            'column_corrections': column_corrections
-        }

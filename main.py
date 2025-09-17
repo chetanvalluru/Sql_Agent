@@ -31,7 +31,6 @@ class QueryResponse(BaseModel):
     results: list
     error: str = None
     suggestions: list = None
-    fuzzy_matches: list = None
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -40,42 +39,30 @@ async def home(request: Request):
 
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    """Process natural language query and return SQL results with fuzzy matching support"""
+    """Process natural language query and return SQL results"""
     try:
         # Get database schema information and sample data
         schema_info = await db_manager.get_schema_info()
         sample_data = await db_manager.get_sample_data()
         
-        # Generate SQL from natural language with enhanced context and fuzzy matching
+        # Generate SQL from natural language with enhanced context
         sql_query = await sql_generator.generate_sql(request.query, schema_info, sample_data)
-        
-        # Validate the generated SQL and get suggestions
-        validated_sql, validation_suggestions = await sql_generator.validate_and_suggest_sql(
-            sql_query, schema_info
-        )
         
         try:
             # Execute the query
-            results = await db_manager.execute_query(validated_sql)
+            results = await db_manager.execute_query(sql_query)
             
             return QueryResponse(
-                sql=validated_sql,
-                results=results,
-                suggestions=validation_suggestions if validation_suggestions else None
+                sql=sql_query,
+                results=results
             )
             
         except Exception as db_error:
-            # Handle SQL execution errors with intelligent suggestions
-            error_analysis = await sql_generator.handle_sql_error(
-                str(db_error), validated_sql, schema_info
-            )
-            
+            # Handle SQL execution errors
             return QueryResponse(
-                sql=validated_sql,
+                sql=sql_query,
                 results=[],
-                error=str(db_error),
-                suggestions=error_analysis.get('suggestions', []),
-                fuzzy_matches=error_analysis.get('column_corrections', {})
+                error=str(db_error)
             )
     
     except Exception as e:
@@ -142,36 +129,6 @@ async def get_data_dictionary():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/fuzzy-match")
-async def fuzzy_match_column(request: dict):
-    """Test fuzzy matching for column names"""
-    try:
-        column_name = request.get("column_name", "")
-        if not column_name:
-            raise HTTPException(status_code=400, detail="column_name is required")
-        
-        schema_info = await db_manager.get_schema_info()
-        
-        # Use the fuzzy matcher directly
-        matches = sql_generator.fuzzy_matcher.find_column_matches(
-            column_name, schema_info, top_n=10
-        )
-        
-        return {
-            "query": column_name,
-            "matches": [
-                {
-                    "column": match.matched_column,
-                    "table": match.table_name,
-                    "similarity": match.similarity_score,
-                    "match_type": match.match_type,
-                    "suggestion": match.suggestion
-                }
-                for match in matches
-            ]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

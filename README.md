@@ -9,7 +9,7 @@ A sophisticated natural language to SQL conversion system built with FastAPI, La
 ## ✨ Features Implemented (Level 1)
 
 ### ✅ Core Functionality
-- **Natural Language Processing** - Convert English queries to SQL using OpenAI GPT
+- **Natural Language Processing** - Convert English queries to SQL using OpenAI GPT-3.5
 - **Database Integration** - Support for both SQLite and MySQL databases
 - **Real-time Query Execution** - Execute SQL and return formatted results
 - **Error Handling** - Comprehensive error handling with user-friendly messages
@@ -509,7 +509,6 @@ This Level 1 implementation provides a solid foundation. Future levels will add:
 ### Level 2: Schema-Aware Query Generation
 - Enhanced prompt engineering with schema context
 - Multi-table JOIN support
-- Column name fuzzy matching
 - Query validation and optimization
 
 ### Level 3: RAG-Enhanced Intelligence
